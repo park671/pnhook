@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-static const char *STACK_TAG = "stack";
+static const char *STACK_TAG = "writableMemoryNodeStack";
 
 struct StackNode {
     void *data;
@@ -76,6 +76,18 @@ void *iteratorNext(struct Stack *stack) {
     void *result = stack->it->data;
     stack->it = stack->it->next;
     return result;
+}
+
+void releaseStack(struct Stack *stack) {
+    resetIterator(stack);
+    struct StackNode *p = stack->it;
+    while (p != NULL) {
+        struct StackNode *current = p;
+        p = p->next;
+        free(current->data);
+        free(current);
+    }
+    free(stack);
 }
 
 struct Stack *createStack(const char *spaceTag) {

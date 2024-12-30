@@ -5,6 +5,9 @@
 #ifndef MEM_DLFUNC_SHELLCODE_ARM64_H
 #define MEM_DLFUNC_SHELLCODE_ARM64_H
 
+#include <stdlib.h>
+#include <stdbool.h>
+
 typedef uint32_t Inst;
 typedef uint64_t Addr;
 
@@ -17,16 +20,8 @@ void *createDirectJumpShellCode(
         Addr targetAddress
 );
 
-void *createInlineHookStub(
-        void *backupFuncPtr,
-        size_t copySize,
-        Addr hookBeforeFuncAddr,
-        Addr backAddr,
-        uint8_t regIndex
-);
-
 void *createInlineHookJumpBack(
-        void *backupFuncAddr,
+        void *backupFuncPtr,
         size_t copySize,
         Addr backAddr,
         uint8_t regIndex

@@ -2,7 +2,7 @@
     .global hookStub
 hookStub:
         sub sp, sp, #256
-
+        b #-4
         str x0, [sp, #0]
         str x1, [sp, #8]
         str x2, [sp, #16]

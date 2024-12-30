@@ -18,6 +18,7 @@ file(GLOB_RECURSE ART_HOOK_DIR "art_hook/*.c" "art_hook/*.cpp" "art_hook/*.cc" "
 
 file(GLOB_RECURSE MAIN_DIR "*.c" "*.cpp" "*.cc" "*.S" "*.s")
 
+
 add_library(${CMAKE_PROJECT_NAME}
         SHARED
         ${UTIL_DIR}

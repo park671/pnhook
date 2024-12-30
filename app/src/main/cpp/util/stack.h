@@ -33,6 +33,7 @@ struct Stack {
 };
 
 struct Stack *createStack(const char *spaceTag);
+void releaseStack(struct Stack *stack);
 
 #ifdef __cplusplus
 }

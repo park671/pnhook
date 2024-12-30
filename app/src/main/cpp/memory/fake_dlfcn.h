@@ -26,10 +26,16 @@
 #include <string.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct DlHandle {
+    bool fakeDyLib;
+    void *handlePtr;
+};
 
 void *dlopen_ex(const char *filename, int flags);
 

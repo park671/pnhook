@@ -7,6 +7,7 @@
 
 #include <unistd.h>
 #include "../util/log.h"
+#include "../inline_hook/shellcode_arm64.h"
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -27,8 +28,6 @@ struct MemStructNode {
     uint64_t inode;
 
     char *elf_path;
-
-    struct MemStructNode *next;
 };
 
 #ifdef __cplusplus
@@ -38,6 +37,8 @@ extern "C" {
 void setTextWritable(const char *libName);
 
 bool isFuncWritable(uint64_t addr);
+
+Addr findShortJumpMemory(void *ptr);
 
 #ifdef __cplusplus
 };

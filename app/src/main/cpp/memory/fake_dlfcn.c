@@ -30,8 +30,13 @@
 #include <sys/system_properties.h>
 #include <android/log.h>
 #include "../util/log.h"
+#include "fake_dlfcn.h"
 
+#ifdef LOG_DBG
 #define log_err(fmt, args...) LOGE((const char *) fmt, ##args)
+#else
+#define log_err(fmt, args...)
+#endif
 
 struct ctx {
     void *load_addr;
@@ -313,26 +318,42 @@ static int get_sdk_level() {
 }
 
 int dlclose_ex(void *handle) {
-    if (get_sdk_level() >= 24) {
-        return fake_dlclose(handle);
+    struct DlHandle *pDlHandle = (struct DlHandle *) handle;
+    if (pDlHandle->fakeDyLib) {
+        bool result = fake_dlclose(pDlHandle->handlePtr);
+        free(pDlHandle);
+        return result;
     } else {
-        return dlclose(handle);
+        bool result = dlclose(pDlHandle->handlePtr);
+        free(pDlHandle);
+        return result;
     }
 }
 
 void *dlopen_ex(const char *filename, int flags) {
-    if (get_sdk_level() >= 24) {
-        return fake_dlopen(filename, flags);
-    } else {
-        return dlopen(filename, flags);
+    struct DlHandle *handle = (struct DlHandle *) malloc(sizeof(struct DlHandle));
+    void *result = dlopen(filename, flags);
+    if (result != NULL) {
+        handle->handlePtr = result;
+        handle->fakeDyLib = false;
+        return handle;
     }
+    result = fake_dlopen(filename, flags);
+    if (result != NULL) {
+        handle->handlePtr = result;
+        handle->fakeDyLib = true;
+        return handle;
+    }
+    free(handle);
+    return NULL;
 }
 
 void *dlsym_ex(void *handle, const char *symbol) {
-    if (get_sdk_level() >= 24) {
-        return fake_dlsym(handle, symbol);
+    struct DlHandle *pDlHandle = (struct DlHandle *) handle;
+    if (pDlHandle->fakeDyLib) {
+        return fake_dlsym(pDlHandle->handlePtr, symbol);
     } else {
-        return dlsym(handle, symbol);
+        return dlsym(pDlHandle->handlePtr, symbol);
     }
 }
 

@@ -13,24 +13,43 @@
 #include "util/log.h"
 #include "memory/memory_scanner.h"
 #include "inline_hook/shellcode_arm64.h"
+#include "inline_hook/method_analyzer.h"
 
 struct PHookHandle *hookMethod(const char *libName, const char *methodName, void *hookDelegate) {
     void *libHandle = dlopen_ex(libName, RTLD_NOW);
+    if (libHandle == NULL) {
+        LOGE("%s can not found in memory", libName);
+        return NULL;
+    }
     void *func = dlsym_ex(libHandle, methodName);
     LOGD("backup address=%p", func);
     dlclose_ex(libHandle);
     if (func == 0) {
         return NULL;
     }
+    const size_t shellCodeByte = (sizeof(Inst) * 2) + (sizeof(Addr) * 1);
     setTextWritable(libName);
     uint64_t funcAddr = (uint64_t) func;
     if (isFuncWritable(funcAddr)) {
         LOGI("make func writable success");
     } else {
         LOGE("make func writable fail");
+        return NULL;
     }
-    size_t shellCodeByte = 4 * 4;//4inst * 4byte
+
     Addr backAddr = funcAddr + shellCodeByte;
+    //analysis method head inst
+    //branch inst need relocation!
+    if (isMethodHeadContainBranch(func, shellCodeByte)) {
+        LOGI("backup head contains branch inst! need relocation");
+        if (isDelegateMethod(func, shellCodeByte)) {
+            //delegate method, hook without jump back
+            LOGD("delegate method, instruction too less to jump back!");
+            backAddr = 0;
+        } else {
+            //todo
+        }
+    }
 
     void *copiedBackupHeadInst = malloc(shellCodeByte);
     Addr beforeHookAddr = (Addr) hookDelegate;
