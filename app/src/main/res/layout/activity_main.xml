@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="native inline hook test"
+        android:textColor="@color/black" />
+
+    <Button
+        android:id="@+id/inlineHookButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="inline hook"
+        android:textAllCaps="false" />
+
+    <Button
+        android:id="@+id/triggerButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="invoke native target"
+        android:textAllCaps="false" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/black" />
+
+    <TextView
+        android:id="@+id/trampolineTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="art java hook test"
+        android:textColor="@color/black" />
+
+
+    <Button
+        android:id="@+id/trampolineButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="hook trampoline"
+        android:textAllCaps="false" />
+
+    <Button
+        android:id="@+id/invokeTargetButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="invoke java target"
+        android:textAllCaps="false" />
+
+
+</LinearLayout>
