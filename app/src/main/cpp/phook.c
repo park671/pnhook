@@ -45,8 +45,6 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
             //delegate method, hook without jump back
             logd(PNHOOK_TAG, "delegate method, instruction too less to jump back!");
             backAddr = 0;
-        } else {
-            //todo
         }
     }
 
@@ -58,7 +56,6 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
         loge(PNHOOK_TAG, "can not create jump back code");
         return NULL;
     }
-//    void *inlineHookPtr = createInlineHookStub(func, shellCodeByte, beforeHookAddr, backAddr, 9);
     logd(PNHOOK_TAG, "inline hook jump back ptr:%p", jumpBackFuncPtr);
     void *jumpCodePtr = createDirectJumpShellCode(9, ((Addr) beforeHookAddr));
     if (jumpCodePtr == NULL) {
@@ -70,6 +67,7 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
     logi(PNHOOK_TAG, "origin func rewrite success");
     struct PHookHandle *pHookHandle = (struct PHookHandle *) malloc(sizeof(struct PHookHandle));
     pHookHandle->backup = jumpBackFuncPtr;
+    restoreMethodPermission();
     return pHookHandle;
 }
 

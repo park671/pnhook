@@ -36,6 +36,7 @@ extern "C" {
 #endif
 
 bool setMethodWritable(const char *libName, uint64_t addr);
+void restoreMethodPermission();
 
 Addr findShortJumpMemory(void *ptr);
 

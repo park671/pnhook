@@ -23,7 +23,13 @@ void printNode(struct MemStructNode *node) {
          node->elf_path);
 }
 
-bool setMemoryWritable(struct MemStructNode *p) {
+struct MemoryPermissionBackup {
+    void *addr;
+    size_t size;
+    int flag;
+};
+
+struct MemoryPermissionBackup *setMemoryWritable(struct MemStructNode *p) {
     int originFlag = PROT_NONE;
     if (strstr(p->permission, "r")) {
         originFlag |= PROT_READ;
@@ -34,32 +40,42 @@ bool setMemoryWritable(struct MemStructNode *p) {
     if (strstr(p->permission, "x")) {
         originFlag |= PROT_EXEC;
     }
-    if (strstr(p->elf_path, currentLibName) != NULL) {
-        if ((originFlag & PROT_READ) == 0) {
-            logw(MEMORY_SCANNER_TAG, "unreadable memory, skip");
-            return false;
-        }
-        if (strstr(p->elf_path, "/dev") != NULL) {
-            logw(MEMORY_SCANNER_TAG, "dev memory, skip");
-            return false;
-        }
-
-        void *addr = (void *) p->start;
-        size_t size = p->end - p->start;
-        printNode(p);
-        if ((originFlag & PROT_WRITE) != 0) {
-            logd(MEMORY_SCANNER_TAG, "already writable");
-            return true;
-        }
-        originFlag |= PROT_WRITE;
-        if (mprotect(addr, size, originFlag) == 0) {
-            logd(MEMORY_SCANNER_TAG, "set writable success");
-            return true;
-        } else {
-            logw(MEMORY_SCANNER_TAG, "set writable fail");
-        }
+    if (strstr(p->elf_path, currentLibName) == NULL) {
+        return NULL;
     }
-    return false;
+    if ((originFlag & PROT_READ) == 0) {
+        logw(MEMORY_SCANNER_TAG, "unreadable memory, skip");
+        return NULL;
+    }
+    if (strstr(p->elf_path, "/dev") != NULL) {
+        logw(MEMORY_SCANNER_TAG, "dev memory, skip");
+        return NULL;
+    }
+    void *addr = (void *) p->start;
+    size_t size = p->end - p->start;
+    printNode(p);
+    if ((originFlag & PROT_WRITE) != 0) {
+        logd(MEMORY_SCANNER_TAG, "already writable");
+        struct MemoryPermissionBackup *memoryPermissionBackup = malloc(
+                sizeof(struct MemoryPermissionBackup));
+        memoryPermissionBackup->addr = addr;
+        memoryPermissionBackup->size = size;
+        memoryPermissionBackup->flag = originFlag;
+        return memoryPermissionBackup;
+    }
+    int newFlag = originFlag | PROT_WRITE;
+    if (mprotect(addr, size, newFlag) == 0) {
+        logd(MEMORY_SCANNER_TAG, "set writable success");
+        struct MemoryPermissionBackup *memoryPermissionBackup = malloc(
+                sizeof(struct MemoryPermissionBackup));
+        memoryPermissionBackup->addr = addr;
+        memoryPermissionBackup->size = size;
+        memoryPermissionBackup->flag = originFlag;
+        return memoryPermissionBackup;
+    } else {
+        logw(MEMORY_SCANNER_TAG, "set writable fail");
+    }
+    return NULL;
 }
 
 void freeMemStructNode(struct MemStructNode *node) {
@@ -143,36 +159,68 @@ bool releaseMapStack(struct Stack *mapStack) {
     return true;
 }
 
+struct Stack *writableMemoryPermissionBackupStack = NULL;
+
 bool setMethodWritable(const char *libName, uint64_t addr) {
     currentLibName = libName;
-    struct Stack *writableMemoryNodeStack = createStack(MEMORY_SCANNER_TAG);
+    if (writableMemoryPermissionBackupStack == NULL) {
+        writableMemoryPermissionBackupStack = createStack(MEMORY_SCANNER_TAG);
+    }
     struct Stack *memoryStructStack = travelMemStruct();
     memoryStructStack->resetIterator(memoryStructStack);
     struct MemStructNode *node = memoryStructStack->iteratorNext(memoryStructStack);
     while (node != NULL) {
-        if (setMemoryWritable(node)) {
-            writableMemoryNodeStack->push(writableMemoryNodeStack, node);
+        struct MemoryPermissionBackup *permissionBackup = setMemoryWritable(node);
+        if (permissionBackup != NULL) {
+            writableMemoryPermissionBackupStack->push(
+                    writableMemoryPermissionBackupStack,
+                    permissionBackup
+            );
         }
         node = memoryStructStack->iteratorNext(memoryStructStack);
     }
     logd(MEMORY_SCANNER_TAG, "[+] travelMemStruct return");
-    if (writableMemoryNodeStack == NULL) {
+    if (writableMemoryPermissionBackupStack == NULL) {
         loge(MEMORY_SCANNER_TAG, "memory have not been scan.");
         return false;
     }
-    writableMemoryNodeStack->resetIterator(writableMemoryNodeStack);
-    node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
+    writableMemoryPermissionBackupStack->resetIterator(writableMemoryPermissionBackupStack);
+    struct MemoryPermissionBackup *permissionBackup = writableMemoryPermissionBackupStack->iteratorNext(
+            writableMemoryPermissionBackupStack);
     bool result = false;
-    while (node != NULL) {
-        logd(MEMORY_SCANNER_TAG, "node:[%02lX - %02lX]", node->start, node->end);
-        if (node->start <= addr && addr <= node->end) {
+    while (permissionBackup != NULL) {
+        Addr startAddr = (Addr) permissionBackup->addr;
+        Addr endAddr = (Addr) (permissionBackup->addr + permissionBackup->size);
+        logd(MEMORY_SCANNER_TAG, "node:[0x%02lX - 0x%02lX]", startAddr, endAddr);
+        if (startAddr <= addr && addr <= endAddr) {
             result = true;
             break;
         }
-        node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
+        permissionBackup = writableMemoryPermissionBackupStack->iteratorNext(
+                writableMemoryPermissionBackupStack);
     }
-    releaseStack(writableMemoryNodeStack);
     releaseMapStack(memoryStructStack);
     return result;
 }
 
+void restoreMethodPermission() {
+    if (writableMemoryPermissionBackupStack == NULL ||
+        writableMemoryPermissionBackupStack->stackSize == 0) {
+        logw(MEMORY_SCANNER_TAG, "no permission backup");
+        return;
+    }
+    writableMemoryPermissionBackupStack->resetIterator(writableMemoryPermissionBackupStack);
+    struct MemoryPermissionBackup *permissionBackup = writableMemoryPermissionBackupStack->iteratorNext(
+            writableMemoryPermissionBackupStack);
+    while (permissionBackup != NULL) {
+        if (mprotect(permissionBackup->addr, permissionBackup->size, permissionBackup->flag) == 0) {
+            logd(MEMORY_SCANNER_TAG, "restore permission:%p", permissionBackup->addr);
+        } else {
+            loge(MEMORY_SCANNER_TAG, "restore permission fail:%p", permissionBackup->addr);
+        }
+        permissionBackup = writableMemoryPermissionBackupStack->iteratorNext(
+                writableMemoryPermissionBackupStack);
+    }
+    releaseStack(writableMemoryPermissionBackupStack);
+    writableMemoryPermissionBackupStack = NULL;
+}
