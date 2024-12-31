@@ -1,6 +1,5 @@
 # pnhook
-![pnhook512_linear](https://github.com/user-attachments/assets/63aa5a7a-cef2-4a8e-9c27-f78fc28137e0)
-park's native hook library for android/linux
+![pnhook](https://github.com/user-attachments/assets/7b67af47-aaef-440b-856f-e5ea7b585450) park's native hook library for android/linux
 
 Completed features:
 1. fake dlopen() / dlsym(): bypass the Android native dlopen namespace restrictions, e.g. libart.so
