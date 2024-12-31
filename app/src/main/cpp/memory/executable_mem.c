@@ -11,7 +11,8 @@
 const char *EXECUTABLE_MEMORY_TAG = "executable_memory";
 
 void *createExecutableMemory(unsigned char *binary, size_t size) {
-    void *mem = mmap(NULL, size, PROT_WRITE | PROT_EXEC,
+    int permission = PROT_READ | PROT_WRITE;
+    void *mem = mmap(NULL, size, permission,
                      MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     logd(EXECUTABLE_MEMORY_TAG, "executable memory addr=%p[%zu byte]\n", mem, size);
     if (size % 4) {
@@ -22,8 +23,14 @@ void *createExecutableMemory(unsigned char *binary, size_t size) {
     memcpy(mem, binary, size);
     logd(EXECUTABLE_MEMORY_TAG, "---binary(high 2 low)---\n");
     for (int i = 0; i < size; i += 4) {
-        logd(EXECUTABLE_MEMORY_TAG, "%p:[0x %02X %02X %02X %02X]\n", (mem + i), binary[i + 3], binary[i + 2], binary[i + 1],
+        logd(EXECUTABLE_MEMORY_TAG, "%p:[0x %02X %02X %02X %02X]\n", (mem + i), binary[i + 3],
+             binary[i + 2], binary[i + 1],
              binary[i]);
+    }
+    if (mprotect(mem, size, PROT_READ | PROT_EXEC) != 0) {
+        loge(EXECUTABLE_MEMORY_TAG, "memory permission exec fail");
+        releaseExecutableMemory(mem, size);
+        return NULL;
     }
     return mem;
 }
