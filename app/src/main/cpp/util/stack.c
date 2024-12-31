@@ -49,6 +49,30 @@ void *pop(struct Stack *stack) {
     return data;
 }
 
+bool removeData(struct Stack *stack, void *data) {
+    if (stack->stackTop == NULL) {
+        return NULL;
+    }
+    struct StackNode *node = stack->stackTop;
+    struct StackNode *preNode = NULL;
+    while (node != NULL && node->data != data) {
+        preNode = node;
+        node = node->next;
+    }
+    if (node == NULL) {
+        return false;
+    }
+    if (preNode == NULL) {
+        //match top, need change top before free
+        stack->stackTop = stack->stackTop->next;
+    } else {
+        preNode->next = node->next;
+    }
+    free(node);
+    stack->stackSize--;
+    return true;
+}
+
 int size(struct Stack *stack) {
     return stack->stackSize;
 }
@@ -95,6 +119,7 @@ struct Stack *createStack(const char *spaceTag) {
     stack->push = push;
     stack->top = top;
     stack->pop = pop;
+    stack->remove = removeData;
     stack->size = size;
     stack->get = get;
     stack->it = NULL;

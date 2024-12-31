@@ -5,6 +5,8 @@
 #ifndef PCC_STACK_H
 #define PCC_STACK_H
 
+#include "stdbool.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +25,8 @@ struct Stack {
 
     void *(*pop)(struct Stack *stack);
 
+    bool (*remove)(struct Stack *stack, void *data);
+
     int (*size)(struct Stack *stack);
 
     void *(*get)(struct Stack *stack, int index);
@@ -33,6 +37,7 @@ struct Stack {
 };
 
 struct Stack *createStack(const char *spaceTag);
+
 void releaseStack(struct Stack *stack);
 
 #ifdef __cplusplus
