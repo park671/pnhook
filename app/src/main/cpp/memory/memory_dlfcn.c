@@ -32,6 +32,25 @@ struct fake_dl_context {
     off_t bias;
 };
 
+unsigned char feature_code[] = {0x7F, 0x45, 0x4C, 0x46};
+
+const unsigned int feature_code_len = 4;
+
+//verify if the memory contains elf header
+static bool verifyElfHeader(void *start, void *end) {
+    int64_t memorySize = end - start;
+    if (memorySize < feature_code_len) {
+        return false;
+    }
+    unsigned char *startBytePtr = start;
+    for (int i = 0; i < feature_code_len; i++) {
+        if (startBytePtr[i] != feature_code[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int fake_dlclose(void *handle) {
     if (handle) {
         struct fake_dl_context *ctx = (struct fake_dl_context *) handle;
@@ -46,9 +65,10 @@ static int fake_dlclose(void *handle) {
 
 /* flags are ignored */
 static void *fake_dlopen(const char *libpath, int flags) {
-    struct fake_dl_context *ctx = 0;
+    struct fake_dl_context *pContext = 0;
     off_t load_addr, size;
-    int k, fd = -1, found = 0;
+    int index, fd = -1;
+    bool found = false;
     char *shoff;
     Elf64_Ehdr *elf = (Elf64_Ehdr *) MAP_FAILED;
 
@@ -57,11 +77,13 @@ static void *fake_dlopen(const char *libpath, int flags) {
     struct Stack *mapStack = travelMemStruct();
     load_addr = INT64_MAX;
     mapStack->resetIterator(mapStack);
+    struct MemStructNode *loadStartNode = NULL;
     struct MemStructNode *memStructNode = mapStack->iteratorNext(mapStack);
     while (memStructNode != NULL) {
         if (strstr(memStructNode->elf_path, libpath)) {
             if (!found) {
-                found = 1;
+                found = true;
+                loadStartNode = memStructNode;
                 libpath = memStructNode->elf_path;
                 load_addr = memStructNode->start;
             } else {
@@ -70,6 +92,7 @@ static void *fake_dlopen(const char *libpath, int flags) {
                 }
                 if (load_addr > memStructNode->start) {
                     load_addr = memStructNode->start;
+                    loadStartNode = memStructNode;
                 }
             }
         }
@@ -78,6 +101,12 @@ static void *fake_dlopen(const char *libpath, int flags) {
 
     if (!found) fatal("%s not found in my userspace", libpath);
     /* Now, mmap the same library once again */
+
+    if (verifyElfHeader((void *) loadStartNode->start, (void *) loadStartNode->end)) {
+        logi(MEMORY_DLFCN_TAG, "load addr elf header verification success");
+    } else {
+        logw(MEMORY_DLFCN_TAG, "load addr elf header verification fail");
+    }
 
     fd = open(libpath, O_RDONLY);
     if (fd < 0) fatal("failed to open %s", libpath);
@@ -92,15 +121,15 @@ static void *fake_dlopen(const char *libpath, int flags) {
 
     if (elf == MAP_FAILED) fatal("mmap() failed for %s", libpath);
 
-    ctx = (struct fake_dl_context *) calloc(1, sizeof(struct fake_dl_context));
-    if (!ctx) fatal("no memory for %s", libpath);
+    pContext = (struct fake_dl_context *) calloc(1, sizeof(struct fake_dl_context));
+    if (!pContext) fatal("no memory for %s", libpath);
 
-    ctx->load_addr = (void *) load_addr;
+    pContext->load_addr = (void *) load_addr;
     logd(MEMORY_DLFCN_TAG, "lib loaded addr=0x%02lX, section num=%d", load_addr, elf->e_shnum);
 
     //found .shstrtab first
     shoff = ((char *) elf) + elf->e_shoff;
-    for (k = 0; k < elf->e_shstrndx; k++, shoff += elf->e_shentsize) {
+    for (index = 0; index < elf->e_shstrndx; index++, shoff += elf->e_shentsize) {
         //skip
     }
     Elf64_Shdr *shstrtab = (Elf64_Shdr *) shoff;
@@ -110,48 +139,48 @@ static void *fake_dlopen(const char *libpath, int flags) {
     //fill info
     shoff = ((char *) elf) + elf->e_shoff;
     bool progbitsFound = false;
-    for (k = 0; k < elf->e_shnum; k++, shoff += elf->e_shentsize) {
+    for (index = 0; index < elf->e_shnum; index++, shoff += elf->e_shentsize) {
         Elf64_Shdr *sh = (Elf64_Shdr *) shoff;
         switch (sh->sh_type) {
             case SHT_SYMTAB: {
                 logd(MEMORY_DLFCN_TAG, "symtab found");
-                if (ctx->symtab) {
+                if (pContext->symtab) {
                     //skip
                     break;
                 }
-                ctx->symtab = malloc(sh->sh_size);
-                if (!ctx->symtab) fatal("%s: no memory for .symtab", libpath);
-                memcpy(ctx->symtab, ((char *) elf) + sh->sh_offset, sh->sh_size);
-                ctx->nsymtabs = (sh->sh_size / sizeof(Elf64_Sym));
+                pContext->symtab = malloc(sh->sh_size);
+                if (!pContext->symtab) fatal("%s: no memory for .symtab", libpath);
+                memcpy(pContext->symtab, ((char *) elf) + sh->sh_offset, sh->sh_size);
+                pContext->nsymtabs = (sh->sh_size / sizeof(Elf64_Sym));
                 break;
             }
 
             case SHT_DYNSYM: {
                 logd(MEMORY_DLFCN_TAG, "dynsym found");
-                if (ctx->dynsym) {
+                if (pContext->dynsym) {
                     //skip
                     break;
                 }
-                ctx->dynsym = malloc(sh->sh_size);
-                if (!ctx->dynsym) fatal("%s: no memory for .dynsym", libpath);
-                memcpy(ctx->dynsym, ((char *) elf) + sh->sh_offset, sh->sh_size);
-                ctx->ndynsyms = (sh->sh_size / sizeof(Elf64_Sym));
+                pContext->dynsym = malloc(sh->sh_size);
+                if (!pContext->dynsym) fatal("%s: no memory for .dynsym", libpath);
+                memcpy(pContext->dynsym, ((char *) elf) + sh->sh_offset, sh->sh_size);
+                pContext->ndynsyms = (sh->sh_size / sizeof(Elf64_Sym));
                 break;
             }
             case SHT_STRTAB: {
                 if (strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".dynstr") ==
                     0) {
                     logd(MEMORY_DLFCN_TAG, "dynstr found");
-                    ctx->dynstr = malloc(sh->sh_size);
-                    if (!ctx->dynstr) fatal("%s: no memory for .dynstr", libpath);
-                    memcpy(ctx->dynstr, ((char *) elf) + sh->sh_offset, sh->sh_size);
+                    pContext->dynstr = malloc(sh->sh_size);
+                    if (!pContext->dynstr) fatal("%s: no memory for .dynstr", libpath);
+                    memcpy(pContext->dynstr, ((char *) elf) + sh->sh_offset, sh->sh_size);
                 } else if (
                         strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".strtab") ==
                         0) {
                     logd(MEMORY_DLFCN_TAG, "strtab found");
-                    ctx->strtab = malloc(sh->sh_size);
-                    if (!ctx->strtab) fatal("%s: no memory for .strtab", libpath);
-                    memcpy(ctx->strtab, ((char *) elf) + sh->sh_offset, sh->sh_size);
+                    pContext->strtab = malloc(sh->sh_size);
+                    if (!pContext->strtab) fatal("%s: no memory for .strtab", libpath);
+                    memcpy(pContext->strtab, ((char *) elf) + sh->sh_offset, sh->sh_size);
                 }
                 break;
             }
@@ -159,7 +188,7 @@ static void *fake_dlopen(const char *libpath, int flags) {
             case SHT_PROGBITS: {
                 if (strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".text") == 0) {
                     logd(MEMORY_DLFCN_TAG, "progbits(.text) found");
-                    ctx->bias = (off_t) sh->sh_addr - (off_t) sh->sh_offset;
+                    pContext->bias = (off_t) sh->sh_addr - (off_t) sh->sh_offset;
                 }
                 break;
             }
@@ -167,23 +196,23 @@ static void *fake_dlopen(const char *libpath, int flags) {
     }
     munmap(elf, size);
     elf = 0;
-    if (!ctx->dynstr || !ctx->dynsym) {
+    if (!pContext->dynstr || !pContext->dynsym) {
         fatal("dynamic sections not found");
     }
 
-    if (!ctx->symtab || !ctx->strtab) {
+    if (!pContext->symtab || !pContext->strtab) {
         logw(MEMORY_DLFCN_TAG, "symtab can not found, maybe stripped");
     }
 
 #undef fatal
     releaseMapStack(mapStack);
-    return ctx;
+    return pContext;
 
     err_exit:
     releaseMapStack(mapStack);
     if (fd >= 0) close(fd);
     if (elf != MAP_FAILED) munmap(elf, size);
-    fake_dlclose(ctx);
+    fake_dlclose(pContext);
     return 0;
 }
 
@@ -192,38 +221,38 @@ static void *fake_dlsym(void *handle, const char *name) {
         loge(MEMORY_DLFCN_TAG, "handle is null");
         return NULL;
     }
-    int k;
-    struct fake_dl_context *ctx = (struct fake_dl_context *) handle;
-    Elf64_Sym *sym = (Elf64_Sym *) ctx->dynsym;
-    char *strings = (char *) ctx->dynstr;
-    for (k = 0; k < ctx->ndynsyms; k++, sym++) {
+    int index;
+    struct fake_dl_context *pContext = (struct fake_dl_context *) handle;
+    Elf64_Sym *sym = (Elf64_Sym *) pContext->dynsym;
+    char *strings = (char *) pContext->dynstr;
+    for (index = 0; index < pContext->ndynsyms; index++, sym++) {
         if (strcmp(strings + sym->st_name, name) == 0) {
-            logd(MEMORY_DLFCN_TAG, "dynsym:[%d]%s", k, strings + sym->st_name);
+            logd(MEMORY_DLFCN_TAG, "dynsym:[%d]%s", index, strings + sym->st_name);
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
-            void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
+            void *ret = (char *) pContext->load_addr + sym->st_value - pContext->bias;
             return ret;
         }
     }
-    sym = (Elf64_Sym *) ctx->symtab;
-    strings = (char *) ctx->strtab;
-    for (k = 0; k < ctx->nsymtabs; k++, sym++) {
+    sym = (Elf64_Sym *) pContext->symtab;
+    strings = (char *) pContext->strtab;
+    for (index = 0; index < pContext->nsymtabs; index++, sym++) {
         if (strcmp(strings + sym->st_name, name) == 0) {
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
-            logd(MEMORY_DLFCN_TAG, "symtab(equal):[%d]%s", k, strings + sym->st_name);
-            void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
+            logd(MEMORY_DLFCN_TAG, "symtab(equal):[%d]%s", index, strings + sym->st_name);
+            void *ret = (char *) pContext->load_addr + sym->st_value - pContext->bias;
             return ret;
         }
     }
-    sym = (Elf64_Sym *) ctx->symtab;
-    strings = (char *) ctx->strtab;
-    for (k = 0; k < ctx->nsymtabs; k++, sym++) {
+    sym = (Elf64_Sym *) pContext->symtab;
+    strings = (char *) pContext->strtab;
+    for (index = 0; index < pContext->nsymtabs; index++, sym++) {
         if (strstr(strings + sym->st_name, name) != NULL) {
-            logd(MEMORY_DLFCN_TAG, "symtab(substring):[%d]%s", k, strings + sym->st_name);
+            logd(MEMORY_DLFCN_TAG, "symtab(substring):[%d]%s", index, strings + sym->st_name);
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
-            void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
+            void *ret = (char *) pContext->load_addr + sym->st_value - pContext->bias;
             return ret;
         }
     }
