@@ -3,7 +3,6 @@
 //
 
 #include "memory_scanner.h"
-#include "../util/stack.h"
 #include "../inline_hook/shellcode_arm64.h"
 
 #define BUFFER_SIZE 4096
@@ -14,7 +13,7 @@ const char *currentLibName = NULL;
 struct Stack *writableMemoryNodeStack = NULL;
 
 void printNode(struct MemStructNode *node) {
-    LOGI("[%lx, %lx], %s, offset=%lx, dev=%x:%x, inode=%lu, elf=%s",
+    logi(MEMORY_SCANNER_TAG, "[%lx, %lx], %s, offset=%lx, dev=%x:%x, inode=%lu, elf=%s",
          node->start,
          node->end,
          node->permission,
@@ -38,11 +37,11 @@ bool setMemoryWritable(struct MemStructNode *p) {
     }
     if (strstr(p->elf_path, currentLibName) != NULL) {
         if ((originFlag & PROT_READ) == 0) {
-            LOGW("unreadable memory, skip");
+            logw(MEMORY_SCANNER_TAG, "unreadable memory, skip");
             return false;
         }
         if (strstr(p->elf_path, "/dev") != NULL) {
-            LOGW("dev memory, skip");
+            logw(MEMORY_SCANNER_TAG, "dev memory, skip");
             return false;
         }
 
@@ -50,15 +49,15 @@ bool setMemoryWritable(struct MemStructNode *p) {
         size_t size = p->end - p->start;
         printNode(p);
         if ((originFlag & PROT_WRITE) != 0) {
-            LOGD("already writable");
+            logd(MEMORY_SCANNER_TAG, "already writable");
             return true;
         }
         originFlag |= PROT_WRITE;
         if (mprotect(addr, size, originFlag) == 0) {
-            LOGD("set writable success");
+            logd(MEMORY_SCANNER_TAG, "set writable success");
             return true;
         } else {
-            LOGW("set writable fail");
+            logw(MEMORY_SCANNER_TAG, "set writable fail");
         }
     }
     return false;
@@ -70,10 +69,10 @@ void freeMemStructNode(struct MemStructNode *node) {
     free(node);
 }
 
-struct MemStructNode *parse_line(char *line) {
+struct MemStructNode *parseLine(char *line) {
     struct MemStructNode *node = malloc(sizeof(struct MemStructNode));
     if (node == NULL) {
-        LOGE("Failed to allocate memory for node");
+        loge(MEMORY_SCANNER_TAG, "Failed to allocate memory for node");
         return NULL;
     }
     node->permission = (char *) malloc(4096);
@@ -86,16 +85,16 @@ struct MemStructNode *parse_line(char *line) {
     return node;
 }
 
-struct Stack *travel_mem_struct() {
+struct Stack *travelMemStruct() {
     struct Stack *resultStack = createStack(MEMORY_SCANNER_TAG);
     pid_t pid, ppid, tid;
     pid = getpid();
     ppid = getppid();
     tid = gettid();
     uid_t uid = getuid();
-    LOGD("pid=%d, ppid=%d, tid=%d, uid=%d\n", pid, ppid, tid, uid);
+    logd(MEMORY_SCANNER_TAG, "pid=%d, ppid=%d, tid=%d, uid=%d\n", pid, ppid, tid, uid);
     if (pid == tid) {
-        LOGD("[+] main thread");
+        logd(MEMORY_SCANNER_TAG, "[+] main thread");
     }
     char mem_map_path[1024];
     sprintf(mem_map_path, "/proc/%d/maps", pid);
@@ -115,14 +114,14 @@ struct Stack *travel_mem_struct() {
             if (current != '\n') {
                 if (idx >= (BUFFER_SIZE * 3)) {
                     line[(BUFFER_SIZE * 3) - 1] = '\0';
-                    resultStack->push(resultStack, parse_line(line));
+                    resultStack->push(resultStack, parseLine(line));
                     idx = 0;
                     continue;
                 }
                 line[idx++] = current;
             } else {
                 line[idx++] = '\0';
-                resultStack->push(resultStack, parse_line(line));
+                resultStack->push(resultStack, parseLine(line));
                 idx = 0;
             }
         }
@@ -131,15 +130,29 @@ struct Stack *travel_mem_struct() {
     return resultStack;
 }
 
+bool releaseMapStack(struct Stack *mapStack) {
+    if (mapStack == NULL) {
+        return false;
+    }
+    mapStack->resetIterator(mapStack);
+    struct MemStructNode *node = mapStack->iteratorNext(mapStack);
+    while (node != NULL) {
+        freeMemStructNode(node);
+        node = mapStack->iteratorNext(mapStack);
+    }
+    releaseStack(mapStack);
+    return true;
+}
+
 bool isFuncWritable(uint64_t addr) {
     if (writableMemoryNodeStack == NULL) {
-        LOGE("memory have not been scan.");
+        loge(MEMORY_SCANNER_TAG, "memory have not been scan.");
         return false;
     }
     writableMemoryNodeStack->resetIterator(writableMemoryNodeStack);
     struct MemStructNode *node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
     while (node != NULL) {
-        LOGD("node:[%02lX - %02lX]", node->start, node->end);
+        logd(MEMORY_SCANNER_TAG, "node:[%02lX - %02lX]", node->start, node->end);
         if (node->start <= addr && addr <= node->end) {
             return true;
         }
@@ -154,7 +167,7 @@ void setTextWritable(const char *libName) {
         free(writableMemoryNodeStack);
     }
     writableMemoryNodeStack = createStack(MEMORY_SCANNER_TAG);
-    struct Stack *memoryStructStack = travel_mem_struct();
+    struct Stack *memoryStructStack = travelMemStruct();
     memoryStructStack->resetIterator(memoryStructStack);
     struct MemStructNode *node = memoryStructStack->iteratorNext(memoryStructStack);
     while (node != NULL) {
@@ -163,41 +176,6 @@ void setTextWritable(const char *libName) {
         }
         node = memoryStructStack->iteratorNext(memoryStructStack);
     }
-    LOGD("[+] travel_mem_struct return");
+    logd(MEMORY_SCANNER_TAG, "[+] travelMemStruct return");
 }
 
-struct MarginMemory {
-    void *start;
-    size_t size;
-};
-
-void *methodPtr = NULL;
-
-bool recordMemory(struct MemStructNode *p) {
-//    struct MemStructNode *node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
-//    while (node != NULL) {
-//        LOGD("node:[%02lX - %02lX]", node->start, node->end);
-//        if (node->start <= addr && addr <= node->end) {
-//            return true;
-//        }
-//        node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
-//    }
-}
-
-Addr findShortJumpMemory(void *ptr) {
-//    Inst *instPtr = ptr;
-//    if (instPtr[0])
-//
-//
-//    struct Stack *memoryStructStack = travel_mem_struct();
-//    memoryStructStack->resetIterator(memoryStructStack);
-//    struct MemStructNode *node = memoryStructStack->iteratorNext(memoryStructStack);
-//    while (node != NULL) {
-//        if (recordMemory(node)) {
-//
-//        }
-//        node = memoryStructStack->iteratorNext(memoryStructStack);
-//    }
-//    LOGD("[+] travel_mem_struct return");
-    return 0;
-}

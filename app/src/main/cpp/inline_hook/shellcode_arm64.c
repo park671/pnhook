@@ -8,6 +8,8 @@
 #include "../util/log.h"
 #include "method_analyzer.h"
 
+const char *SHELL_CODE_TAG = "shell_code";
+
 const Inst instNop = 0xd503201f;//todo debug only
 
 //size 4
@@ -16,7 +18,7 @@ void *generateDirectJumpShellCode(
         Addr targetAddress
 ) {
     if (regIndex & ~0x1F) {
-        LOGE("invalid reg: %d", regIndex);
+        loge(SHELL_CODE_TAG, "invalid reg: %d", regIndex);
         return NULL;
     }
     Inst instLdr = 0x58000040 | regIndex;
@@ -35,7 +37,7 @@ void *generateDirectJumpShellCodeWithLink(
         Addr targetAddress
 ) {
     if (regIndex & ~0x1F) {
-        LOGE("invalid reg: %d", regIndex);
+        loge(SHELL_CODE_TAG, "invalid reg: %d", regIndex);
         return NULL;
     }
     Inst instLdr = 0x58000040 | regIndex;
@@ -98,7 +100,7 @@ void *createInlineHookJumpBack(
         uint8_t regIndex
 ) {
     if (regIndex & ~0x1F) {
-        LOGE("invalid reg: %d", regIndex);
+        loge(SHELL_CODE_TAG, "invalid reg: %d", regIndex);
         return NULL;
     }
     /**
@@ -114,7 +116,7 @@ void *createInlineHookJumpBack(
      **/
     size_t inlineHookStubSize = copySize + sizeof(Inst) * 4;//copy data + hook stub 4
     if (backAddr == 0) {
-        LOGD("inline hook without jump back");
+        logd(SHELL_CODE_TAG, "inline hook without jump back");
         inlineHookStubSize = copySize;
     }
 
@@ -129,17 +131,17 @@ void *createInlineHookJumpBack(
             }
         }
     }
-    LOGD("copied jump back = %p(%zu byte)", backupFuncPtr, inlineHookStubSize);
+    logd(SHELL_CODE_TAG, "copied jump back = %p(%zu byte)", backupFuncPtr, inlineHookStubSize);
     Inst *inlineHookStub = (Inst *) malloc(inlineHookStubSize);
     Inst *inlineHookStubIterator = inlineHookStub;
     for (int i = 0; i < copySize / 4; i++) {
         //relocation branch inst
         if (isInstBranch(backupInstPtr[i])) {
             int backupOffset = getBranchOffset(backupInstPtr[i]) * 4;
-            LOGD("backupOffset=0x%02X", backupOffset);
+            logd(SHELL_CODE_TAG, "backupOffset=0x%02X", backupOffset);
             Addr backupEntryAddr = (Addr) backupFuncPtr;
             Addr targetAddr = backupEntryAddr + backupOffset;
-            LOGD("branch binary[%d]: 0x%02X, target=0x%02lX", i, backupInstPtr[i], targetAddr);
+            logd(SHELL_CODE_TAG, "branch binary[%d]: 0x%02X, target=0x%02lX", i, backupInstPtr[i], targetAddr);
             void *directJumpShellCode = NULL;
             if (branchWithLink(backupInstPtr[i])) {
                 directJumpShellCode = generateDirectJumpShellCodeWithLink(regIndex, targetAddr);
@@ -155,15 +157,15 @@ void *createInlineHookJumpBack(
                 inlineHookStubIterator += 4;
             }
         } else {
-            LOGD("copy binary[%d]: 0x%02X", i, backupInstPtr[i]);
+            logd(SHELL_CODE_TAG, "copy binary[%d]: 0x%02X", i, backupInstPtr[i]);
             *inlineHookStubIterator = backupInstPtr[i];
             inlineHookStubIterator++;
         }
     }
-    LOGI("copied backup relocation success");
+    logi(SHELL_CODE_TAG, "copied backup relocation success");
 
     if (backAddr != 0) {
-        LOGD("generate jump back to 0x%02lx", backAddr);
+        logd(SHELL_CODE_TAG, "generate jump back to 0x%02lx", backAddr);
         //need jump back, generate inst & addr
         int stubInstStartIndex = inlineHookStubIterator - inlineHookStub;
         const int spRegIndex = 31;

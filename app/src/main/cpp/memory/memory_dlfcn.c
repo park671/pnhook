@@ -1,24 +1,3 @@
-// Copyright (c) 2016 avs333
-// Updated 2024 park671
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-//		of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-//		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//		copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-//		The above copyright notice and this permission notice shall be included in all
-//		copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// 		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,17 +7,21 @@
 #include <elf.h>
 #include <dlfcn.h>
 #include <sys/system_properties.h>
-#include <android/log.h>
 #include "../util/log.h"
-#include "fake_dlfcn.h"
+#include "memory_dlfcn.h"
+#include "memory_scanner.h"
+
+const char *MEMORY_DLFCN_TAG = "memory_dlfcn";
+
+//#define LOG_DBG
 
 #ifdef LOG_DBG
-#define log_err(fmt, args...) LOGE((const char *) fmt, ##args)
+#define log_err(fmt, args...) loge(MEMORY_DLFCN_TAG, (const char *) fmt, ##args)
 #else
 #define log_err(fmt, args...)
 #endif
 
-struct ctx {
+struct fake_dl_context {
     void *load_addr;
     void *strtab;
     void *dynstr;
@@ -51,7 +34,7 @@ struct ctx {
 
 static int fake_dlclose(void *handle) {
     if (handle) {
-        struct ctx *ctx = (struct ctx *) handle;
+        struct fake_dl_context *ctx = (struct fake_dl_context *) handle;
         if (ctx->dynsym) free(ctx->dynsym);    /* we're saving dynsym and strtab */
         if (ctx->dynstr) free(ctx->dynstr);    /* from library file just in case */
         if (ctx->symtab) free(ctx->symtab);    /* from library file just in case */
@@ -62,10 +45,8 @@ static int fake_dlclose(void *handle) {
 }
 
 /* flags are ignored */
-static void *fake_dlopen_with_path(const char *libpath, int flags) {
-    FILE *maps;
-    char buff[256];
-    struct ctx *ctx = 0;
+static void *fake_dlopen(const char *libpath, int flags) {
+    struct fake_dl_context *ctx = 0;
     off_t load_addr, size;
     int k, fd = -1, found = 0;
     char *shoff;
@@ -73,19 +54,29 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
 
 #define fatal(fmt, args...) do { log_err(fmt,##args); goto err_exit; } while(0)
 
-    maps = fopen("/proc/self/maps", "r");
-    if (!maps) fatal("failed to open maps");
-
-    while (!found && fgets(buff, sizeof(buff), maps)) {
-        if (strstr(buff, libpath) && (strstr(buff, "r-xp") || strstr(buff, "r--p"))) found = 1;
+    struct Stack *mapStack = travelMemStruct();
+    load_addr = INT64_MAX;
+    mapStack->resetIterator(mapStack);
+    struct MemStructNode *memStructNode = mapStack->iteratorNext(mapStack);
+    while (memStructNode != NULL) {
+        if (strstr(memStructNode->elf_path, libpath)) {
+            if (!found) {
+                found = 1;
+                libpath = memStructNode->elf_path;
+                load_addr = memStructNode->start;
+            } else {
+                if (strcmp(libpath, memStructNode->elf_path) != 0) {
+                    fatal("duplicated lib matched: %s, %s", libpath, memStructNode->elf_path);
+                }
+                if (load_addr > memStructNode->start) {
+                    load_addr = memStructNode->start;
+                }
+            }
+        }
+        memStructNode = mapStack->iteratorNext(mapStack);
     }
-    fclose(maps);
 
     if (!found) fatal("%s not found in my userspace", libpath);
-
-    if (sscanf(buff, "%lx", &load_addr) != 1)
-        fatal("failed to read load address for %s", libpath);
-
     /* Now, mmap the same library once again */
 
     fd = open(libpath, O_RDONLY);
@@ -95,18 +86,17 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
     if (size <= 0) fatal("lseek() failed for %s", libpath);
 
     elf = (Elf64_Ehdr *) mmap(0, size, PROT_READ, MAP_SHARED, fd, 0);
-    LOGD("target so size=%ld", size);
+    logd(MEMORY_DLFCN_TAG, "target so size=%ld", size);
     close(fd);
     fd = -1;
 
     if (elf == MAP_FAILED) fatal("mmap() failed for %s", libpath);
 
-    ctx = (struct ctx *) calloc(1, sizeof(struct ctx));
+    ctx = (struct fake_dl_context *) calloc(1, sizeof(struct fake_dl_context));
     if (!ctx) fatal("no memory for %s", libpath);
 
     ctx->load_addr = (void *) load_addr;
-
-    LOGD("section num=%d", elf->e_shnum);
+    logd(MEMORY_DLFCN_TAG, "lib loaded addr=0x%02lX, section num=%d", load_addr, elf->e_shnum);
 
     //found .shstrtab first
     shoff = ((char *) elf) + elf->e_shoff;
@@ -124,7 +114,7 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
         Elf64_Shdr *sh = (Elf64_Shdr *) shoff;
         switch (sh->sh_type) {
             case SHT_SYMTAB: {
-                LOGD("symtab found");
+                logd(MEMORY_DLFCN_TAG, "symtab found");
                 if (ctx->symtab) {
                     //skip
                     break;
@@ -137,7 +127,7 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
             }
 
             case SHT_DYNSYM: {
-                LOGD("dynsym found");
+                logd(MEMORY_DLFCN_TAG, "dynsym found");
                 if (ctx->dynsym) {
                     //skip
                     break;
@@ -151,14 +141,14 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
             case SHT_STRTAB: {
                 if (strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".dynstr") ==
                     0) {
-                    LOGD("dynstr found");
+                    logd(MEMORY_DLFCN_TAG, "dynstr found");
                     ctx->dynstr = malloc(sh->sh_size);
                     if (!ctx->dynstr) fatal("%s: no memory for .dynstr", libpath);
                     memcpy(ctx->dynstr, ((char *) elf) + sh->sh_offset, sh->sh_size);
                 } else if (
                         strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".strtab") ==
                         0) {
-                    LOGD("strtab found");
+                    logd(MEMORY_DLFCN_TAG, "strtab found");
                     ctx->strtab = malloc(sh->sh_size);
                     if (!ctx->strtab) fatal("%s: no memory for .strtab", libpath);
                     memcpy(ctx->strtab, ((char *) elf) + sh->sh_offset, sh->sh_size);
@@ -168,7 +158,7 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
 
             case SHT_PROGBITS: {
                 if (strcmp(((((char *) elf) + shstrtab->sh_offset) + sh->sh_name), ".text") == 0) {
-                    LOGD("progbits(.text) found");
+                    logd(MEMORY_DLFCN_TAG, "progbits(.text) found");
                     ctx->bias = (off_t) sh->sh_addr - (off_t) sh->sh_offset;
                 }
                 break;
@@ -182,92 +172,33 @@ static void *fake_dlopen_with_path(const char *libpath, int flags) {
     }
 
     if (!ctx->symtab || !ctx->strtab) {
-        LOGW("symtab can not found, maybe stripped");
+        logw(MEMORY_DLFCN_TAG, "symtab can not found, maybe stripped");
     }
 
 #undef fatal
-
+    releaseMapStack(mapStack);
     return ctx;
 
     err_exit:
+    releaseMapStack(mapStack);
     if (fd >= 0) close(fd);
     if (elf != MAP_FAILED) munmap(elf, size);
     fake_dlclose(ctx);
     return 0;
 }
 
-static const char *const kSystemLibDir = "/system/lib64/";
-static const char *const kOdmLibDir = "/odm/lib64/";
-static const char *const kVendorLibDir = "/vendor/lib64/";
-static const char *const kApexLibDir = "/apex/com.android.runtime/lib64/";
-static const char *const kApexArtNsLibDir = "/apex/com.android.art/lib64/";
-
-static void *fake_dlopen(const char *filename, int flags) {
-    if (strlen(filename) > 0 && filename[0] == '/') {
-        return fake_dlopen_with_path(filename, flags);
-    } else {
-        char buf[512] = {0};
-        void *handle = NULL;
-        //sysmtem
-        strcpy(buf, kSystemLibDir);
-        strcat(buf, filename);
-        handle = fake_dlopen_with_path(buf, flags);
-        if (handle) {
-            return handle;
-        }
-
-        // apex in ns com.android.runtime
-        memset(buf, 0, sizeof(buf));
-        strcpy(buf, kApexLibDir);
-        strcat(buf, filename);
-        handle = fake_dlopen_with_path(buf, flags);
-        if (handle) {
-            return handle;
-        }
-
-        // apex in ns com.android.art
-        memset(buf, 0, sizeof(buf));
-        strcpy(buf, kApexArtNsLibDir);
-        strcat(buf, filename);
-        handle = fake_dlopen_with_path(buf, flags);
-        if (handle) {
-            return handle;
-        }
-
-        //odm
-        memset(buf, 0, sizeof(buf));
-        strcpy(buf, kOdmLibDir);
-        strcat(buf, filename);
-        handle = fake_dlopen_with_path(buf, flags);
-        if (handle) {
-            return handle;
-        }
-
-        //vendor
-        memset(buf, 0, sizeof(buf));
-        strcpy(buf, kVendorLibDir);
-        strcat(buf, filename);
-        handle = fake_dlopen_with_path(buf, flags);
-        if (handle) {
-            return handle;
-        }
-
-        return fake_dlopen_with_path(filename, flags);
-    }
-}
-
 static void *fake_dlsym(void *handle, const char *name) {
     if (handle == NULL) {
-        LOGE("handle is null");
+        loge(MEMORY_DLFCN_TAG, "handle is null");
         return NULL;
     }
     int k;
-    struct ctx *ctx = (struct ctx *) handle;
+    struct fake_dl_context *ctx = (struct fake_dl_context *) handle;
     Elf64_Sym *sym = (Elf64_Sym *) ctx->dynsym;
     char *strings = (char *) ctx->dynstr;
     for (k = 0; k < ctx->ndynsyms; k++, sym++) {
         if (strcmp(strings + sym->st_name, name) == 0) {
-            LOGD("dynsym:[%d]%s", k, strings + sym->st_name);
+            logd(MEMORY_DLFCN_TAG, "dynsym:[%d]%s", k, strings + sym->st_name);
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
             void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
@@ -280,7 +211,7 @@ static void *fake_dlsym(void *handle, const char *name) {
         if (strcmp(strings + sym->st_name, name) == 0) {
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
-            LOGD("symtab(equal):[%d]%s", k, strings + sym->st_name);
+            logd(MEMORY_DLFCN_TAG, "symtab(equal):[%d]%s", k, strings + sym->st_name);
             void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
             return ret;
         }
@@ -289,7 +220,7 @@ static void *fake_dlsym(void *handle, const char *name) {
     strings = (char *) ctx->strtab;
     for (k = 0; k < ctx->nsymtabs; k++, sym++) {
         if (strstr(strings + sym->st_name, name) != NULL) {
-            LOGD("symtab(substring):[%d]%s", k, strings + sym->st_name);
+            logd(MEMORY_DLFCN_TAG, "symtab(substring):[%d]%s", k, strings + sym->st_name);
             /*  NB: sym->st_value is an offset into the section for relocatables,
             but a VMA for shared libs or exe files, so we have to subtract the bias */
             void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
@@ -302,19 +233,6 @@ static void *fake_dlsym(void *handle, const char *name) {
 
 static const char *fake_dlerror() {
     return NULL;
-}
-
-// =============== implementation for compat ==========
-static int SDK_INT = -1;
-
-static int get_sdk_level() {
-    if (SDK_INT > 0) {
-        return SDK_INT;
-    }
-    char sdk[PROP_VALUE_MAX] = {0};;
-    __system_property_get("ro.build.version.sdk", sdk);
-    SDK_INT = atoi(sdk);
-    return SDK_INT;
 }
 
 int dlclose_ex(void *handle) {
@@ -358,9 +276,5 @@ void *dlsym_ex(void *handle, const char *symbol) {
 }
 
 const char *dlerror_ex() {
-    if (get_sdk_level() >= 24) {
-        return fake_dlerror();
-    } else {
-        return dlerror();
-    }
+    return fake_dlerror();
 }

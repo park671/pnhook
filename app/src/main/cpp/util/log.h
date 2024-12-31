@@ -7,10 +7,10 @@
 
 #include <android/log.h>
 
-#define LOGD(...)  ((void)__android_log_print(ANDROID_LOG_DEBUG, "pHookNative", __VA_ARGS__))
-#define LOGI(...)  ((void)__android_log_print(ANDROID_LOG_INFO, "pHookNative", __VA_ARGS__))
-#define LOGV(...)  ((void)__android_log_print(ANDROID_LOG_VERBOSE, "pHookNative", __VA_ARGS__))
-#define LOGW(...)  ((void)__android_log_print(ANDROID_LOG_WARN, "pHookNative", __VA_ARGS__))
-#define LOGE(...)  ((void)__android_log_print(ANDROID_LOG_ERROR, "pHookNative", __VA_ARGS__))
+#define logd(tag, ...) ((void)__android_log_print(ANDROID_LOG_DEBUG, tag, __VA_ARGS__))
+#define logi(tag, ...) ((void)__android_log_print(ANDROID_LOG_INFO, tag, __VA_ARGS__))
+#define logv(tag, ...) ((void)__android_log_print(ANDROID_LOG_VERBOSE, tag, __VA_ARGS__))
+#define logw(tag, ...) ((void)__android_log_print(ANDROID_LOG_WARN, tag, __VA_ARGS__))
+#define loge(tag, ...) ((void)__android_log_print(ANDROID_LOG_ERROR, tag, __VA_ARGS__))
 
 #endif //PLUSFRIEND_LOG_H

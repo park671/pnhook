@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <sys/mman.h>
+#include "../util/stack.h"
 
 struct MemStructNode {
     uint64_t start;
@@ -39,6 +40,9 @@ void setTextWritable(const char *libName);
 bool isFuncWritable(uint64_t addr);
 
 Addr findShortJumpMemory(void *ptr);
+
+bool releaseMapStack(struct Stack *mapStack);
+struct Stack *travelMemStruct();
 
 #ifdef __cplusplus
 };

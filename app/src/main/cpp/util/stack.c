@@ -84,7 +84,6 @@ void releaseStack(struct Stack *stack) {
     while (p != NULL) {
         struct StackNode *current = p;
         p = p->next;
-        free(current->data);
         free(current);
     }
     free(stack);

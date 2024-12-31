@@ -1,6 +1,6 @@
 #include <jni.h>
 #include <dlfcn.h>
-#include "memory/fake_dlfcn.h"
+#include "memory/memory_dlfcn.h"
 #include "util/log.h"
 #include "art_hook/art_13_0.h"
 #include "memory/executable_mem.h"
@@ -11,20 +11,22 @@
 
 static struct PHookHandle *pHookHandle = nullptr;
 
+const char *PNHOOK_BRIDGE_TAG = "pnhook_bridge";
+
 extern "C" jdouble StrictMathCosHookDelegate(jdouble d) {
-    LOGD("StrictMath_cos() hook delegate called!");
-    LOGD("native input: %0.2f", d);
+    logd(PNHOOK_BRIDGE_TAG, "StrictMath_cos() hook delegate called!");
+    logd(PNHOOK_BRIDGE_TAG, "native input: %0.2f", d);
     //invoke origin func
     jdouble result = ((jdouble (*)(jdouble d)) pHookHandle->backup)(d);
     jdouble mock = 671.123;
-    LOGD("input: %0.2f, output:%0.2f, mock:%0.2f", d, result, mock);
+    logd(PNHOOK_BRIDGE_TAG, "input: %0.2f, output:%0.2f, mock:%0.2f", d, result, mock);
     return mock;
 }
 
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_park_pnhook_NativeBridge_inlineHook(JNIEnv *env, jclass clazz) {
-    LOGD("inline hook start");
+    logd(PNHOOK_BRIDGE_TAG, "inline hook start");
     const char *libName = "libopenjdk.so";
     const char *methodName = "StrictMath_cos";
     void *hookDelegatePtr = (void *) StrictMathCosHookDelegate;
