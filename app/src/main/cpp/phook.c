@@ -28,9 +28,8 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
         return NULL;
     }
     const size_t shellCodeByte = (sizeof(Inst) * 2) + (sizeof(Addr) * 1);
-    setTextWritable(libName);
     uint64_t funcAddr = (uint64_t) func;
-    if (isFuncWritable(funcAddr)) {
+    if (setMethodWritable(libName, funcAddr)) {
         logi(PNHOOK_TAG, "make func writable success");
     } else {
         loge(PNHOOK_TAG, "make func writable fail");

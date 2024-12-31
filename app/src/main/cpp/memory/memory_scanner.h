@@ -35,9 +35,7 @@ struct MemStructNode {
 extern "C" {
 #endif
 
-void setTextWritable(const char *libName);
-
-bool isFuncWritable(uint64_t addr);
+bool setMethodWritable(const char *libName, uint64_t addr);
 
 Addr findShortJumpMemory(void *ptr);
 

@@ -10,7 +10,6 @@
 const char *MEMORY_SCANNER_TAG = "memory_scanner";
 
 const char *currentLibName = NULL;
-struct Stack *writableMemoryNodeStack = NULL;
 
 void printNode(struct MemStructNode *node) {
     logi(MEMORY_SCANNER_TAG, "[%lx, %lx], %s, offset=%lx, dev=%x:%x, inode=%lu, elf=%s",
@@ -144,29 +143,9 @@ bool releaseMapStack(struct Stack *mapStack) {
     return true;
 }
 
-bool isFuncWritable(uint64_t addr) {
-    if (writableMemoryNodeStack == NULL) {
-        loge(MEMORY_SCANNER_TAG, "memory have not been scan.");
-        return false;
-    }
-    writableMemoryNodeStack->resetIterator(writableMemoryNodeStack);
-    struct MemStructNode *node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
-    while (node != NULL) {
-        logd(MEMORY_SCANNER_TAG, "node:[%02lX - %02lX]", node->start, node->end);
-        if (node->start <= addr && addr <= node->end) {
-            return true;
-        }
-        node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
-    }
-    return false;
-}
-
-void setTextWritable(const char *libName) {
+bool setMethodWritable(const char *libName, uint64_t addr) {
     currentLibName = libName;
-    if (writableMemoryNodeStack != NULL) {
-        free(writableMemoryNodeStack);
-    }
-    writableMemoryNodeStack = createStack(MEMORY_SCANNER_TAG);
+    struct Stack *writableMemoryNodeStack = createStack(MEMORY_SCANNER_TAG);
     struct Stack *memoryStructStack = travelMemStruct();
     memoryStructStack->resetIterator(memoryStructStack);
     struct MemStructNode *node = memoryStructStack->iteratorNext(memoryStructStack);
@@ -177,5 +156,23 @@ void setTextWritable(const char *libName) {
         node = memoryStructStack->iteratorNext(memoryStructStack);
     }
     logd(MEMORY_SCANNER_TAG, "[+] travelMemStruct return");
+    if (writableMemoryNodeStack == NULL) {
+        loge(MEMORY_SCANNER_TAG, "memory have not been scan.");
+        return false;
+    }
+    writableMemoryNodeStack->resetIterator(writableMemoryNodeStack);
+    node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
+    bool result = false;
+    while (node != NULL) {
+        logd(MEMORY_SCANNER_TAG, "node:[%02lX - %02lX]", node->start, node->end);
+        if (node->start <= addr && addr <= node->end) {
+            result = true;
+            break;
+        }
+        node = writableMemoryNodeStack->iteratorNext(writableMemoryNodeStack);
+    }
+    releaseStack(writableMemoryNodeStack);
+    releaseMapStack(memoryStructStack);
+    return result;
 }
 
