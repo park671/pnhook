@@ -73,7 +73,7 @@ bool hookArtThreadCreate() {
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_park_pnhook_NativeBridge_inlineHook(JNIEnv *env, jclass clazz) {
-    if (hookArtThreadCreate()) {
+    if (hookStrictMathCos() && hookArtThreadCreate()) {
         return JNI_TRUE;
     } else {
         return JNI_FALSE;
