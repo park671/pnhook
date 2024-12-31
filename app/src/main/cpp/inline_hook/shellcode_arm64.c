@@ -134,6 +134,7 @@ void *createInlineHookJumpBack(
     logd(SHELL_CODE_TAG, "copied jump back = %p(%zu byte)", backupFuncPtr, inlineHookStubSize);
     Inst *inlineHookStub = (Inst *) malloc(inlineHookStubSize);
     Inst *inlineHookStubIterator = inlineHookStub;
+    bool relocated = false;
     for (int i = 0; i < copySize / 4; i++) {
         //relocation branch inst
         if (isInstBranch(backupInstPtr[i])) {
@@ -141,7 +142,8 @@ void *createInlineHookJumpBack(
             logd(SHELL_CODE_TAG, "backupOffset=0x%02X", backupOffset);
             Addr backupEntryAddr = (Addr) backupFuncPtr;
             Addr targetAddr = backupEntryAddr + backupOffset;
-            logd(SHELL_CODE_TAG, "branch binary[%d]: 0x%02X, target=0x%02lX", i, backupInstPtr[i], targetAddr);
+            logd(SHELL_CODE_TAG, "branch binary[%d]: 0x%02X, target=0x%02lX", i, backupInstPtr[i],
+                 targetAddr);
             void *directJumpShellCode = NULL;
             if (branchWithLink(backupInstPtr[i])) {
                 directJumpShellCode = generateDirectJumpShellCodeWithLink(regIndex, targetAddr);
@@ -156,13 +158,16 @@ void *createInlineHookJumpBack(
                 free(directJumpShellCode);
                 inlineHookStubIterator += 4;
             }
+            relocated = true;
         } else {
             logd(SHELL_CODE_TAG, "copy binary[%d]: 0x%02X", i, backupInstPtr[i]);
             *inlineHookStubIterator = backupInstPtr[i];
             inlineHookStubIterator++;
         }
     }
-    logi(SHELL_CODE_TAG, "copied backup relocation success");
+    if (relocated) {
+        logd(SHELL_CODE_TAG, "copied backup relocation finish");
+    }
 
     if (backAddr != 0) {
         logd(SHELL_CODE_TAG, "generate jump back to 0x%02lx", backAddr);

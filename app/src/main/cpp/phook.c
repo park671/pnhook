@@ -41,11 +41,11 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
     //branch inst need relocation!
     if (isMethodHeadContainBranch(func, shellCodeByte)) {
         logi(PNHOOK_TAG, "backup head contains branch inst! need relocation");
-        if (isDelegateMethod(func, shellCodeByte)) {
-            //delegate method, hook without jump back
-            logd(PNHOOK_TAG, "delegate method, instruction too less to jump back!");
-            backAddr = 0;
-        }
+    }
+    if (!needJumpBack(func, shellCodeByte)) {
+        //delegate method, hook without jump back
+        logd(PNHOOK_TAG, "small method, instruction too few to jump back");
+        backAddr = 0;
     }
 
     void *copiedBackupHeadInst = malloc(shellCodeByte);

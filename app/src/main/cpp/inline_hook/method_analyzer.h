@@ -18,6 +18,8 @@ bool isMethodHeadContainBranch(void *methodPtr, size_t size);
 
 bool isDelegateMethod(void *methodPtr, size_t shellCodeSize);
 
+bool needJumpBack(void *methodPtr, size_t shellCodeSize);
+
 bool isInstBranch(Inst inst);
 
 #ifdef __cplusplus

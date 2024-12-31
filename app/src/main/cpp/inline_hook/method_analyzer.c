@@ -7,10 +7,13 @@
 #include "shellcode_arm64.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include "log.h"
+
+const char *METHOD_ANALYZER_TAG = "method_analyzer";
 
 bool isInstBranch(Inst inst) {
-    Inst branchMask = 0x14000000;
-    if (branchMask & inst) {
+    Inst branchMask = 0x1C000000;
+    if ((branchMask & inst) == 0x14000000) {
         return true;
     } else {
         return false;
@@ -19,8 +22,9 @@ bool isInstBranch(Inst inst) {
 
 bool isMethodHeadContainBranch(void *methodPtr, size_t size) {
     Inst *instPtr = (Inst *) methodPtr;
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < size / 4; i++) {
         if (isInstBranch(instPtr[i])) {
+            logd(METHOD_ANALYZER_TAG, "branch inst=0x%02X", instPtr[i]);
             return true;
         }
     }
@@ -30,14 +34,24 @@ bool isMethodHeadContainBranch(void *methodPtr, size_t size) {
 bool isDelegateMethod(void *methodPtr, size_t shellCodeSize) {
     Inst *instPtr = (Inst *) methodPtr;
     if (isInstBranch(instPtr[0])) {
-        for (int i = 1; i < shellCodeSize; i++) {
-            if (instPtr[1] != 0) {
+        for (int i = 1; i < shellCodeSize / 4; i++) {
+            if (instPtr[i] != 0) {
                 return false;
             }
         }
         return true;
     }
     return false;
+}
+
+bool needJumpBack(void *methodPtr, size_t shellCodeSize) {
+    Inst *instPtr = (Inst *) methodPtr;
+    for (int i = 0; i < shellCodeSize / 4; i++) {
+        if (instPtr[i] == 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void *hasSpaceForShellCode(void *methodPtr, size_t size) {
