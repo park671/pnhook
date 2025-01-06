@@ -15,7 +15,7 @@
 
 const char *PNHOOK_TAG = "pnhook";
 
-struct PHookHandle *hookMethod(const char *libName, const char *methodName, void *hookDelegate) {
+void *methodForName(const char *libName, const char *methodName) {
     void *libHandle = dlopen_ex(libName, RTLD_NOW);
     if (libHandle == NULL) {
         loge(PNHOOK_TAG, "%s can not found in memory", libName);
@@ -24,25 +24,29 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
     void *func = dlsym_ex(libHandle, methodName);
     logd(PNHOOK_TAG, "backup address=%p", func);
     dlclose_ex(libHandle);
-    if (func == 0) {
+    return func;
+}
+
+struct PHookHandle *hookMethodPtr(void *methodPtr, void *hookDelegate) {
+    logd(PNHOOK_TAG, "backup address=%p", methodPtr);
+    if (methodPtr == 0) {
         return NULL;
     }
     const size_t shellCodeByte = (sizeof(Inst) * 2) + (sizeof(Addr) * 1);
-    uint64_t funcAddr = (uint64_t) func;
-    if (setMethodWritable(libName, funcAddr)) {
+
+    if (setMethodWritable(methodPtr)) {
         logi(PNHOOK_TAG, "make func writable success");
     } else {
         loge(PNHOOK_TAG, "make func writable fail");
         return NULL;
     }
-
-    Addr backAddr = funcAddr + shellCodeByte;
+    Addr backAddr = ((Addr) methodPtr) + shellCodeByte;
     //analysis method head inst
     //branch inst need relocation!
-    if (isMethodHeadContainBranch(func, shellCodeByte)) {
+    if (isMethodHeadContainBranch(methodPtr, shellCodeByte)) {
         logi(PNHOOK_TAG, "backup head contains branch inst! need relocation");
     }
-    if (!needJumpBack(func, shellCodeByte)) {
+    if (!needJumpBack(methodPtr, shellCodeByte)) {
         //delegate method, hook without jump back
         logd(PNHOOK_TAG, "small method, instruction too few to jump back");
         backAddr = 0;
@@ -51,7 +55,7 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
     void *copiedBackupHeadInst = malloc(shellCodeByte);
     Addr beforeHookAddr = (Addr) hookDelegate;
 
-    void *jumpBackFuncPtr = createInlineHookJumpBack(func, shellCodeByte, backAddr, 9);
+    void *jumpBackFuncPtr = createInlineHookJumpBack(methodPtr, shellCodeByte, backAddr, 9);
     if (jumpBackFuncPtr == NULL) {
         loge(PNHOOK_TAG, "can not create jump back code");
         return NULL;
@@ -63,12 +67,17 @@ struct PHookHandle *hookMethod(const char *libName, const char *methodName, void
         return NULL;
     }
     logd(PNHOOK_TAG, "shell code ptr:%p", jumpCodePtr);
-    memcpy(func, jumpCodePtr, shellCodeByte);
+    memcpy(methodPtr, jumpCodePtr, shellCodeByte);
     logi(PNHOOK_TAG, "origin func rewrite success");
     struct PHookHandle *pHookHandle = (struct PHookHandle *) malloc(sizeof(struct PHookHandle));
     pHookHandle->backup = jumpBackFuncPtr;
     restoreMethodPermission();
     return pHookHandle;
+}
+
+struct PHookHandle *hookMethod(const char *libName, const char *methodName, void *hookDelegate) {
+    void *func = methodForName(libName, methodName);
+    return hookMethodPtr(func, hookDelegate);
 }
 
 bool unhookMethod(struct PHookHandle *) {

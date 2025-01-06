@@ -15,6 +15,10 @@ struct PHookHandle {
 extern "C" {
 #endif
 
+void *methodForName(const char *libName, const char *methodName);
+
+struct PHookHandle *hookMethodPtr(void *methodPtr, void *hookDelegate);
+
 struct PHookHandle *hookMethod(const char *libName, const char *methodName, void *hookDelegate);
 
 bool unhookMethod(struct PHookHandle *);

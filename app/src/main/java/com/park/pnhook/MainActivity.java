@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
             Log.d(TAG, "java input=" + angleInRadians);
             double result = StrictMath.cos(angleInRadians);
             Log.d(TAG, "cos(60 degrees) = " + result);
-            Log.d(TAG, "invoke native target finish");
+            binding.inlineHookTextView.setText("cos(60 degrees) = " + result);
         });
 
         binding.invokeTargetButton.setOnClickListener(v -> {

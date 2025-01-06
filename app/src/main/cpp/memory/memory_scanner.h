@@ -35,12 +35,16 @@ struct MemStructNode {
 extern "C" {
 #endif
 
-bool setMethodWritable(const char *libName, uint64_t addr);
+bool setMethodWritable(void *methodPtr);
+
+bool setLibWritable(const char *libName);
+
 void restoreMethodPermission();
 
 Addr findShortJumpMemory(void *ptr);
 
 bool releaseMapStack(struct Stack *mapStack);
+
 struct Stack *travelMemStruct();
 
 #ifdef __cplusplus
