@@ -12,6 +12,11 @@ park's native hook library for android/linux
 
 ## Interface:
 ```C
+struct PHookHandle {
+    //this is the origin method that u hook.
+    void *backup;
+};
+
 //get a method by name
 void *methodForName(const char *libName, const char *methodName);
 
@@ -30,8 +35,10 @@ bool unhookMethod(struct PHookHandle *);
 //hook a method named "StrictMath_cos()" in "libopenjdk.so"
 //this method is the native impl of Java's "java.lang.StrictMath.cos()"
 
+//hold the hook handle, will be used if u want to call the origin method
 static struct PHookHandle *strictMathCosHookHandle = nullptr;
 
+//this method is used for processing hook logic (delegate the origin method)
 extern "C" jdouble StrictMathCosHookDelegate(jdouble d) {
     const char *TEST_TAG = "strict_math_hook";
     logd(TEST_TAG, "StrictMath_cos() hook delegate called!");
@@ -43,6 +50,7 @@ extern "C" jdouble StrictMathCosHookDelegate(jdouble d) {
     return mock;
 }
 
+//invoke this mehthod to apply the hook!
 bool hookStrictMathCos() {
     logd(PNHOOK_BRIDGE_TAG, "inline hook start");
     const char *libName = "libopenjdk.so";
